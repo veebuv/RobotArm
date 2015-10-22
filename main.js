@@ -99,7 +99,6 @@ var LENGTH2 = 160;
 // Leap input zero point for calculating inverse kinematics
 
 // Restricted input values (in Leap space).
-// You can change these depending on how you build your robot arm.
 var MAX_Y = 200;
 var MIN_Y = 0;
 var MIN_Z = 0;
@@ -108,12 +107,6 @@ var MAX_Z = 400;
 // How many past frames to cache for smoothing; slows down response time with a higher number
 var SMOOTHING_FRAMES = 10;
 
-/*
- * Need to set up 4 servos: shoulder, elbow, claw, and base
- * Use inverse kinematics equation on servoShoulder & servoElbow
- * Use fingerDistance to rotate servoClaw to desired position
- * Servos must be placed on the Arduino's PWM pins
- */
 
 // Leap motion controller
 var controller = new Leap.Controller();
@@ -124,22 +117,20 @@ controller.on('frame', function(frame) {
     if(frame.hands.length > 0) {
         handPosition = frame.hands[0].palmPosition;
 
-        // Offset z to always keep the value positive
+        // Modulus z for always positive
         frame.hands[0].palmPosition[1] -= 150;
         frame.hands[0].palmPosition[2] = 200 + (-1*frame.hands[0].palmPosition[2]);
 
         var smoothedInput = smoothInput(handPosition);
         smoothingQueue(handPosition);
 
-        // Restrict certain inputs to prevent physical damage
-        // These values should be changed depending on your arm design
         if(smoothedInput.y < MIN_Y) smoothedInput.y = MIN_Y;
         if(smoothedInput.y > MAX_Y) smoothedInput.y = MAX_Y;
         if(smoothedInput.z < MIN_Z) smoothedInput.z = MIN_Z;
         if(smoothedInput.z > MAX_Z) smoothedInput.z = MAX_Z;
         // console.log(smoothedInput);
 
-        // Calculate all of the movement angles
+
         //angles = calculateInverseKinematics(0,-10+handPosition[1]/normalize,handPosition[2]/normalize);
         armAngles = calculateInverseKinematics(smoothedInput.y, smoothedInput.z);
         baseAngle = calculateBaseAngle(smoothedInput.x, smoothedInput.z);
@@ -147,7 +138,7 @@ controller.on('frame', function(frame) {
         elbowAngle = armAngles.theta2;
     }
 
-    // Finger distance (of two fingers only) controls the end effector
+    // Finger distance
     if(frame.pointables.length > 1) {
         f1 = frame.pointables[0];
         f2 = frame.pointables[1];
@@ -199,10 +190,7 @@ board.on('ready', function() {
     });
 });
 
-
-/*
- * Smoothing the input - takes the average value of SMOOTHING_FRAMES number of frames
- */
+//smoothes the framerate
 function smoothInput(current) {
     if (handHistory.length === 0) {
         return current;
@@ -229,9 +217,7 @@ function smoothingQueue(current) {
 }
 
 
-/*
- * Angle Calculation Functions
- */
+//functions
 
 function calculateBaseAngle(x,z) {
     var angle = Math.tan(x/z);
@@ -255,9 +241,7 @@ function calculateInverseKinematics(y,z) {
 }
 
 
-/*
- * Utility Functions
- */
+//trig functions
 
 function distance(x1,y1,z1,x2,y2,z2) {
     return Math.sqrt(square(x2-x1)+square(y2-y1)+square(z2-z1));
