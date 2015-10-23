@@ -190,7 +190,7 @@ board.on('ready', function() {
     });
 });
 
-//smoothes the framerate
+//smoothes the frame rate
 function smoothInput(current) {
     if (handHistory.length === 0) {
         return current;
