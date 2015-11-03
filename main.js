@@ -66,47 +66,65 @@
 var Leap = require('leapjs');
 var five = require('johnny-five');
 
-// Board and servos for Johnny-Five
-var board, servoBase, servoShoulder, servoElbow, servoClaw;
+// Defining all the servos
+var board;
+ var platformMotor;
+  var shoulderMotor;
+   var elbowMotor;
+    var clawMotor;
 
-// Position variables for the Leap
-var handPosition;
-var handHistory = [];
-var fingerDistance;
-var armAngles;
+// Different positions
+var armLocation;
+var armLocationHistory = [];
+var myFingerDistance;
+var leverAngles;
 
-// Movement variables
-var baseAngle, shoulderAngle, elbowAngle, clawAngle;
+// All the servo inverse kinematic angles
+var platformMotorAngle, shoulderMotorAngle, elbowMotorAngle, clawMotorAngle;
 var frames = [];
 
-/*
- * Settings
- */
-var normalize = 3;
-var minimumClawDistance = 15;
-var boardOptions = { port: '/dev/cu.usbmodem1411' };
-
-// PWM Pins
-var PIN_BASE = 9;
-var PIN_SHOULDER = 10;
-var PIN_ELBOW = 6;
-var PIN_CLAW = 11;
-
-// Arm length in millimeters
-var LENGTH1 = 160;
-var LENGTH2 = 160;
-
-// Leap input zero point for calculating inverse kinematics
-
-// Restricted input values (in Leap space).
+// Max y and x values to restrict leap in envirnment
 var MAX_Y = 200;
+var MAX_Z = 400;
 var MIN_Y = 0;
 var MIN_Z = 0;
-var MAX_Z = 400;
 
-// How many past frames to cache for smoothing; slows down response time with a higher number
-var SMOOTHING_FRAMES = 10;
+// All the pin numbers using naming convention
+var P_BASE = 9;
+var P_SHOULDER = 10;
+var P_ELBOW = 6;
+var P_CLAW = 11;
 
+// Setting up the response by controlling the number of frames
+var RESPONSE_SMOOTHNESS = 10;
+
+function seperation(x1,y1,z1,x2,y2,z2) {
+    return Math.sqrt(square(x2-x1)+square(y2-y1)+square(z2-z1));
+}
+
+function square(value) {
+    return value*value;
+}
+
+function toDegrees(rad) {
+    return rad*57;
+}
+
+var angleCalculator = function (y,z) {
+    //pythagoras theorem to get the squares
+    var hypotenuse = Math.sqrt(square(y)+square(z));
+    var a = Math.atan(y/z);
+    var b = Math.acos((square(long1)+square(hypotenuse)-square(long2))/(2*long1*hypotenuse));
+    var angle1 = toDegrees(a+b);
+
+    // Get second angle
+    var c = Math.acos((square(long2)+square(long1)-square(hypotenuse))/(2*long1*long2));
+    var angle2 = 180 - toDegrees(c);
+    return {
+        angle1: angle1,
+        angle2: angle2
+    }
+}
 
 // Leap motion controller
 var controller = new Leap.Controller();
@@ -115,38 +133,56 @@ var controller = new Leap.Controller();
 controller.on('frame', function(frame) {
     // Hand position controls the robot arm position
     if(frame.hands.length > 0) {
-        handPosition = frame.hands[0].palmPosition;
+        armLocation = frame.hands[0].palmPosition;//palm position is a leap variable referring to the central palm node
 
-        // Modulus z for always positive
-        frame.hands[0].palmPosition[1] -= 150;
-        frame.hands[0].palmPosition[2] = 200 + (-1*frame.hands[0].palmPosition[2]);
+// Modulus z for always positive
+        
+        frame.hands[0].palmPosition[1] -= 123;
+        frame.hands[0].palmPosition[2] = 134 + (-1*frame.hands[0].palmPosition[2]);
 
-        var smoothedInput = smoothInput(handPosition);
-        smoothingQueue(handPosition);
+        var butteredInput = butterTheInput(armLocation);
+        smoothingQueue(armLocation);
 
-        if(smoothedInput.y < MIN_Y) smoothedInput.y = MIN_Y;
-        if(smoothedInput.y > MAX_Y) smoothedInput.y = MAX_Y;
-        if(smoothedInput.z < MIN_Z) smoothedInput.z = MIN_Z;
-        if(smoothedInput.z > MAX_Z) smoothedInput.z = MAX_Z;
-        // console.log(smoothedInput);
+        if(butteredInput.y < MIN_Y) butteredInput.y = MIN_Y;
+        if(butteredInput.y > MAX_Y) butteredInput.y = MAX_Y;
+        if(butteredInput.z < MIN_Z) butteredInput.z = MIN_Z;
+        if(butteredInput.z > MAX_Z) butteredInput.z = MAX_Z;
+        
 
 
-        //angles = calculateInverseKinematics(0,-10+handPosition[1]/normalize,handPosition[2]/normalize);
-        armAngles = calculateInverseKinematics(smoothedInput.y, smoothedInput.z);
-        baseAngle = calculateBaseAngle(smoothedInput.x, smoothedInput.z);
-        shoulderAngle = armAngles.theta1;
-        elbowAngle = armAngles.theta2;
+        leverAngles = angleCalculator(butteredInput.y, butteredInput.z);
+        platformMotorAngle = calculateplatformMotorAngle(butteredInput.x, butteredInput.z);
+        shoulderMotorAngle = leverAngles.angle1;
+        elbowMotorAngle = leverAngles.angle2;
     }
 
     // Finger distance
     if(frame.pointables.length > 1) {
         f1 = frame.pointables[0];
         f2 = frame.pointables[1];
-        fingerDistance = distance(f1.tipPosition[0],f1.tipPosition[1],f1.tipPosition[2],f2.tipPosition[0],f2.tipPosition[1],f2.tipPosition[2]);
-        clawAngle = 120-fingerDistance;
+        myFingerDistance = seperation(f1.tipPosition[0],f1.tipPosition[1],f1.tipPosition[2],f2.tipPosition[0],f2.tipPosition[1],f2.tipPosition[2]);
+        clawMotorAngle = 140-myFingerDistance;
     }
     frames.push(frame);
 });
+
+var smoothingQueue = function (current) {
+    armLocationHistory.unshift(current);
+    if (armLocationHistory.length > RESPONSE_SMOOTHNESS) {
+        armLocationHistory.pop();
+    }
+}
+
+// Arm length in millimeters
+var long1 = 160;
+var long2 = 160;
+
+var calculateplatformMotorAngle = function (x,z) {
+    var angle = Math.tan(x/z);
+    return 90 - toDegrees(angle);
+}
+
+
 
 // Leap Motion connected
 controller.on('connect', function(frame) {
@@ -161,96 +197,52 @@ controller.connect();
 // Johnny-Five controller
 board = new five.Board();
 board.on('ready', function() {
-    servoBase = new five.Servo(PIN_BASE);
-    servoShoulder = new five.Servo(PIN_SHOULDER);
-    servoElbow = new five.Servo(PIN_ELBOW);
-    servoClaw = new five.Servo(PIN_CLAW);
+    platformMotor = new five.Servo(P_BASE);
+    shoulderMotor = new five.Servo(P_SHOULDER);
+    elbowMotor = new five.Servo(P_ELBOW);
+    clawMotor = new five.Servo(P_CLAW);
 
-    // Initial positions of the robot arm
-    servoBase.to(90);
-    servoShoulder.to(90);
-    servoElbow.to(45);
-    servoClaw.to(40);
+    // Setting up all the initial positions so that it doesnt crash
+    platformMotor.to(0);
+    shoulderMotor.to(45);
+    elbowMotor.to(45);
+    clawMotor.to(150);
 
     // Move each component
     this.loop(30, function() {
-        if(!isNaN(shoulderAngle) && !isNaN(elbowAngle)) {
-            servoShoulder.to(shoulderAngle);
-            servoElbow.to(elbowAngle);
-        } else {
-            //console.log("Shoulder/Elbow NaN value detected.");
+        if(!isNaN(shoulderMotorAngle) && !isNaN(elbowMotorAngle)) {
+            shoulderMotor.to(shoulderMotorAngle);
+            elbowMotor.to(elbowMotorAngle);
+        } 
+        if(platformMotorAngle >= 0 && platformMotorAngle <= 180) {
+            platformMotor.to(platformMotorAngle);
         }
-        if(baseAngle >= 0 && baseAngle <= 180) {
-            servoBase.to(baseAngle);
+        if(clawMotorAngle >= 45 && clawMotorAngle <= 90) {
+            clawMotor.to(clawMotorAngle);
         }
-        if(clawAngle >= 45 && clawAngle <= 90) {
-            servoClaw.to(clawAngle);
-        }
-        console.log("Base: " + Math.floor(baseAngle) + "\tShoulder: " + Math.floor(shoulderAngle) + "\tElbow: " + Math.floor(elbowAngle) + "\tClaw: " + Math.floor(clawAngle));
     });
 });
 
 //smoothes the frame rate
-function smoothInput(current) {
-    if (handHistory.length === 0) {
+function butterTheInput(current) {
+    if (armLocationHistory.length === 0) {
         return current;
     }
 
-    var x = 0, y = 0, z = 0;
-    var periods = handHistory.length;
+    var x = 0;
+    var y = 0; 
+    var z = 0;
+    var totalDuration = armLocationHistory.length;
 
-    for (var i = 0; i < periods; i++) {
-        x += current[0] + handHistory[i][0];
-        y += current[1] + handHistory[i][1];
-        z += current[2] + handHistory[i][2];
+    for (var i = 0; i < totalDuration; i++) {
+        x += current[0] + armLocationHistory[i][0];
+        y += current[1] + armLocationHistory[i][1];
+        z += current[2] + armLocationHistory[i][2];
     }
 
-    periods += 1; // To incldue the current frame
-    return {x: x/periods, y: y/periods, z: z/periods};
-}
-
-function smoothingQueue(current) {
-    handHistory.unshift(current);
-    if (handHistory.length > SMOOTHING_FRAMES) {
-        handHistory.pop();
-    }
+    totalDuration += 1; 
+    return {x: x/totalDuration, y: y/totalDuration, z: z/totalDuration};
 }
 
 
-//functions
 
-function calculateBaseAngle(x,z) {
-    var angle = Math.tan(x/z);
-    return 90 - toDegrees(angle);
-}
-
-function calculateInverseKinematics(y,z) {
-    var hypotenuse = Math.sqrt(square(y)+square(z));
-    var a = Math.atan(y/z);
-    var b = Math.acos((square(LENGTH1)+square(hypotenuse)-square(LENGTH2))/(2*LENGTH1*hypotenuse));
-    var theta1 = toDegrees(a+b);
-
-    // Get second angle
-    var c = Math.acos((square(LENGTH2)+square(LENGTH1)-square(hypotenuse))/(2*LENGTH1*LENGTH2));
-    var theta2 = 180 - toDegrees(c);
-    // console.log("t1: %s\tt2: %s", theta1, theta2);
-    return {
-        theta1: theta1,
-        theta2: theta2
-    }
-}
-
-
-//trig functions
-
-function distance(x1,y1,z1,x2,y2,z2) {
-    return Math.sqrt(square(x2-x1)+square(y2-y1)+square(z2-z1));
-}
-
-function square(x) {
-    return x*x;
-}
-
-function toDegrees(r) {
-    return r*57.2957795;
-}
